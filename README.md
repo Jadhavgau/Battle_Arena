@@ -7,13 +7,25 @@ Check out the live deployment here: [Battle Arena Live](https://playverse-710232
 
 ---
 
-## 🎮 Current Game Showcase
+## 🎮 The Gaming Vault (12 Games)
 
-### 🪨 📄 ✂️ Rock Paper Scissors (RPS) Duel
-A fully synchronized, real-time implementation of the classic game, engineered for multiplayer competitive play.
-* **Smart Matchmaking Room:** Players can join or create shared arenas seamlessly via custom room IDs.
-* **Real-time Synchronization:** Moves are securely handled through dynamic socket states to prevent cheating or desync.
-* **Instant Action Feedback:** Live UI animations tracking choices, wins, losses, and battle stats.
+### 👥 Multiplayer & Strategy Arenas
+* **Rock Paper Scissors:** Fully synchronized, live player-vs-player duel with matchmaking lobbies.
+* **Tic Tac Toe:** Classic turn-based grid strategy for real-time multiplayer combat.
+* **Connect 4:** Drop your colored discs and align 4 in a row before your opponent does.
+* **Ludo:** The ultimate strategy board game brought to life with live synchronization.
+* **Snakes & Ladders:** A casual yet thrilling multiplayer race to the 100th square.
+
+### 🧩 Brain-Melting Puzzles
+* **2048:** Slide, merge, and double the numbers to reach the legendary 2048 tile.
+* **Wordle:** Guess the secret 5-letter word within 6 strategic attempts.
+* **Memory Match:** Test your cognitive retention by flipping and matching paired cards.
+* **Simon Says:** Follow, memorize, and repeat the escalating sequence of colored lights.
+
+### ⚡ Fast-Paced Action & Arcade
+* **Snake Game:** Retro arcade action—grow longer by eating food but don't bite your own tail!
+* **Whack-a-Mole:** High-reflex reaction game where speed is key to smashing those moles.
+* **Typing Speed:** Test your words-per-minute (WPM) accuracy under tight time pressure.
 
 ---
 
