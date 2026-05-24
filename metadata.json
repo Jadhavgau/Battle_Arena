@@ -1,0 +1,8 @@
+{
+  "name": "Battle Arena",
+  "description": "A modern production-quality mini-games platform with multiplayer support, leaderboards, and a neon gaming aesthetic.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

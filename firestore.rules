@@ -1,0 +1,65 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Global Denial
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128;
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'displayName', 'email', 'xp', 'level']) &&
+             data.uid == request.auth.uid &&
+             data.xp is number &&
+             data.level is number;
+    }
+
+    function isValidLeaderboardEntry(data) {
+      return data.keys().hasAll(['gameId', 'uid', 'score', 'timestamp']) &&
+             data.uid == request.auth.uid &&
+             data.score is number;
+    }
+
+    // Collections
+    match /_connection_test_/{docId} {
+      allow read: if true;
+    }
+
+    match /rooms/{roomId} {
+      allow read, write: if true;
+    }
+
+    match /users/{uid} {
+      allow get: if isSignedIn();
+      allow create: if isOwner(uid) && isValidUser(request.resource.data);
+      allow update: if isOwner(uid) && 
+                      isValidUser(request.resource.data) &&
+                      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['xp', 'level', 'totalGamesPlayed', 'totalWins', 'achievements', 'favorites', 'lastPlayed']);
+    }
+
+    match /leaderboards/{gameId} {
+      allow get: if isSignedIn();
+      
+      match /entries/{entryId} {
+        allow list, get: if isSignedIn();
+        allow create: if isSignedIn() && 
+                        isValidLeaderboardEntry(request.resource.data) &&
+                        request.resource.data.uid == request.auth.uid;
+      }
+    }
+  }
+}

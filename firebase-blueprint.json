@@ -1,0 +1,60 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile and gaming statistics",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "email": { "type": "string" },
+        "xp": { "type": "number" },
+        "level": { "type": "number" },
+        "totalGamesPlayed": { "type": "number" },
+        "totalWins": { "type": "number" },
+        "achievements": { "type": "array", "description": "List of achievement IDs" },
+        "favorites": { "type": "array", "description": "List of game IDs" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "lastPlayed": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "displayName", "email"]
+    },
+    "LeaderboardEntry": {
+      "title": "Leaderboard Entry",
+      "description": "High score for a specific game",
+      "type": "object",
+      "properties": {
+        "gameId": { "type": "string" },
+        "uid": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "score": { "type": "number" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["gameId", "uid", "score"]
+    },
+    "Achievement": {
+      "title": "Achievement",
+      "description": "Earned milestones",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "icon": { "type": "string" },
+        "xpReward": { "type": "number" }
+      }
+    }
+  },
+  "firestore": {
+    "/users/{uid}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/leaderboards/{gameId}/entries/{entryId}": {
+      "schema": "LeaderboardEntry",
+      "description": "Scores per game"
+    }
+  }
+}
