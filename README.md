@@ -1,20 +1,39 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# ⚔️ Battle Arena
 
-# Run and deploy your AI Studio app
+Battle Arena is a real-time, competitive multiplayer gaming platform built using modern web technologies. It features a rock-solid, live-synchronized multiplayer ecosystem with seamless matchmaking, enabling players to jump straight into intense, fast-paced duels.
 
-This contains everything you need to run your app locally.
+## 🚀 Live Demo
+Check out the live deployment here: [Battle Arena Live](https://playverse-710232461445.asia-southeast1.run.app/)
 
-View your app in AI Studio: https://ai.studio/apps/ea18f0f1-dc39-468b-b174-27d134301f4b
+---
 
-## Run Locally
+## 🎮 Current Game Showcase
 
-**Prerequisites:**  Node.js
+### 🪨 📄 ✂️ Rock Paper Scissors (RPS) Duel
+A fully synchronized, real-time implementation of the classic game, engineered for multiplayer competitive play.
+* **Smart Matchmaking Room:** Players can join or create shared arenas seamlessly via custom room IDs.
+* **Real-time Synchronization:** Moves are securely handled through dynamic socket states to prevent cheating or desync.
+* **Instant Action Feedback:** Live UI animations tracking choices, wins, losses, and battle stats.
 
+---
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+## 🛠️ Tech Stack
+
+Battle Arena is built with high-performance frameworks and libraries to ensure minimal latency and ultra-smooth performance:
+
+* **Frontend Framework:** React 19 + TypeScript 5
+* **Styling & UI:** Tailwind CSS (for modern, responsive layouts) & Framer Motion (for crisp battle animations)
+* **Icons:** Lucide React
+* **Real-time Networking:** Socket.io-client
+* **Deployment:** Google Cloud Run (Fully Scalable Serverless Container Infrastructure)
+
+---
+
+## 📦 Getting Started
+
+Follow these steps to set up the project locally on your machine:
+
+### 1. Clone the Repository
+```bash
+git clone <your-github-repository-url>
+cd battle-arena
