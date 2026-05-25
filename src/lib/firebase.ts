@@ -13,6 +13,7 @@ const app = initializeApp(firebaseConfig);
 // in some containerized or restricted environments which manifest as "offline".
 const firestoreSettings = {
   experimentalForceLongPolling: true,
+  useFetchStreams: false,
 };
 
 // CRITICAL: Initialize with the specific database ID from config
@@ -58,42 +59,47 @@ export const logout = () => {
   return signOut(auth);
 };
 
+// Robust exponential backoff retry for connecting to Firestore server
+async function retryGetDocFromServer(docRef: any, maxRetries = 5, delayMs = 1500): Promise<any> {
+  let attempt = 0;
+  while (attempt < maxRetries) {
+    try {
+      console.log(`Connection attempt ${attempt + 1}/${maxRetries} to doc '${docRef.path}'...`);
+      return await getDocFromServer(docRef);
+    } catch (e: any) {
+      attempt++;
+      const isRetryable = e.message?.toLowerCase().includes('offline') || 
+                          e.message?.toLowerCase().includes('failed to get document') ||
+                          e.code === 'unavailable';
+      if (isRetryable && attempt < maxRetries) {
+        const nextDelay = delayMs * Math.pow(2, attempt - 1);
+        console.warn(`⚠️ Firestore connection attempt ${attempt} failed: ${e.message}. Retrying in ${nextDelay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, nextDelay));
+      } else {
+        throw e;
+      }
+    }
+  }
+}
+
 // Validate connection and config integrity
 export async function testConnection() {
   console.log("Checking Firestore connectivity...");
   try {
-    // We'll use a simple collection reference to check if the SDK can talk to the backend
-    // Switching to a more passive check first
     const docRef = doc(db, '_connection_test_', 'check');
-    // Using getDoc instead of getDocFromServer to allow the SDK to manage its own internal state/retries
-    // and potentially show a cleaner error message if it fails.
     console.log(`Pinging database: ${firebaseConfig.firestoreDatabaseId || '(default)'}`);
-    
-    // We skip the immediate testConnection on load in some environments to allow network to settle
-    // but here we'll just wrap it.
     console.log("Waiting for network handshake...");
     
     // Give it a small delay to settle
     await new Promise(resolve => setTimeout(resolve, 1000));
 
-    const snap = await getDocFromServer(docRef).catch(e => {
-       if (e.message.includes('offline')) {
-         console.warn("⚠️ Firestore reported offline. Checking again in 3s...");
-         return new Promise(resolve => setTimeout(resolve, 3000))
-           .then(() => getDocFromServer(docRef))
-           .catch(e2 => {
-             console.error("Firestore still offline after retry.", e2.message);
-             return null;
-           });
-       }
-       throw e;
-    });
+    const snap = await retryGetDocFromServer(docRef);
     
     if (snap) {
       console.log("✅ Firestore connected and operational.");
     }
   } catch (error: any) {
-    console.error("❌ Firestore connection test failed:", error);
+    console.error("❌ Firestore connection test failed after all retries:", error);
     
     if (error?.code === 'permission-denied') {
       console.error("Rule Conflict: Permission denied. Check your Firestore security rules.");
