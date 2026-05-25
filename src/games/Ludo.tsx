@@ -242,63 +242,7 @@ const Ludo: React.FC<LudoProps> = ({ onGameOver }) => {
     }
   }, [mode, room, activeSlots, canTokenMove]);
 
-  // 12-second turn auto-pass fallback to prevent deadlocks completely
-  useEffect(() => {
-    if (mode !== "multi" || !room) return;
 
-    // Identify who is the active player and if they are current user
-    const myIdxInRoom = room.players.findIndex(p => p.id === socket.id);
-    if (myIdxInRoom === -1) return;
-    const mySlot = activeSlots[myIdxInRoom];
-    const isMyTurnActive = currentPlayer === mySlot;
-
-    // We give the active player 12 seconds to act.
-    // If they are unresponsive (e.g. disconnected or stuck), the next player in activeSlots
-    // will act as a backup after 14 seconds to force-pass the turn.
-    const activePlayerTimeout = 12000;
-    const backupTimeout = 14000;
-
-    const timeoutDuration = isMyTurnActive ? activePlayerTimeout : backupTimeout;
-
-    const handleAutoPass = () => {
-      console.log(`[LUDO TIMEOUT] Turn stuck for ${timeoutDuration / 1000}s. Forcing turn pass.`);
-      
-      // Determine next player
-      let nextPlayer = currentPlayer;
-      do {
-        nextPlayer = (nextPlayer + 1) % 4;
-      } while (
-        !activeSlots.includes(nextPlayer) || 
-        (winners.includes(nextPlayer) && winners.length < activeSlots.length)
-      );
-
-      if (mode === "multi" && room) {
-        socket.emit("game-action", {
-          roomId: room.id,
-          action: "ludo-sync",
-          data: {
-            tokens: stateRef.current.tokens,
-            currentPlayer: nextPlayer,
-            lastRoll: stateRef.current.lastRoll,
-            isDiceRolled: false,
-            winners: stateRef.current.winners,
-            isRolling: false
-          }
-        });
-      } else {
-        // Reset local state
-        setCurrentPlayer(nextPlayer);
-        setIsDiceRolled(false);
-        setIsRolling(false);
-      }
-    };
-
-    const timer = setTimeout(handleAutoPass, timeoutDuration);
-
-    return () => {
-      clearTimeout(timer);
-    };
-  }, [currentPlayer, isDiceRolled, isRolling, mode, room, activeSlots, winners]);
 
   const rollDice = () => {
     if (isRolling || isDiceRolled) return;
