@@ -152,22 +152,28 @@ const Ludo: React.FC<LudoProps> = ({ onGameOver }) => {
     return currentPlayer === mySlot;
   }, [room, activeSlots, currentPlayer]);
 
+  // Keep latest states in ref to prevent closure capture issues during socket transmissions
+  const stateRef = React.useRef({ tokens, currentPlayer, lastRoll, isDiceRolled, winners });
+  useEffect(() => {
+    stateRef.current = { tokens, currentPlayer, lastRoll, isDiceRolled, winners };
+  }, [tokens, currentPlayer, lastRoll, isDiceRolled, winners]);
+
   const syncState = useCallback((updates: any) => {
     if (mode === "multi" && room) {
       socket.emit("game-action", {
         roomId: room.id,
         action: "ludo-sync",
         data: {
-          tokens,
-          currentPlayer,
-          lastRoll,
-          isDiceRolled,
-          winners,
+          tokens: stateRef.current.tokens,
+          currentPlayer: stateRef.current.currentPlayer,
+          lastRoll: stateRef.current.lastRoll,
+          isDiceRolled: stateRef.current.isDiceRolled,
+          winners: stateRef.current.winners,
           ...updates
         }
       });
     }
-  }, [mode, room, tokens, currentPlayer, lastRoll, isDiceRolled, winners]);
+  }, [mode, room]);
 
   // Handle Game Over Reporting
   useEffect(() => {
@@ -196,12 +202,65 @@ const Ludo: React.FC<LudoProps> = ({ onGameOver }) => {
           setCurrentPlayer(data.currentPlayer);
           setLastRoll(data.lastRoll);
           setIsDiceRolled(data.isDiceRolled);
+          if (data.isRolling !== undefined) {
+            setIsRolling(data.isRolling);
+          }
           setWinners(data.winners || []);
         }
       });
       return () => { socket.off("game-event"); };
     }
   }, [mode, room]);
+
+  // 12-second turn auto-pass fallback to prevent deadlocks completely
+  useEffect(() => {
+    if (mode !== "multi" || !room) return;
+
+    // Identify who is the active player and if they are current user
+    const myIdxInRoom = room.players.findIndex(p => p.id === socket.id);
+    if (myIdxInRoom === -1) return;
+    const mySlot = activeSlots[myIdxInRoom];
+    const isMyTurnActive = currentPlayer === mySlot;
+
+    // We give the active player 12 seconds to act.
+    // If they are unresponsive (e.g. disconnected or stuck), the next player in activeSlots
+    // will act as a backup after 14 seconds to force-pass the turn.
+    const activePlayerTimeout = 12000;
+    const backupTimeout = 14000;
+
+    const timeoutDuration = isMyTurnActive ? activePlayerTimeout : backupTimeout;
+
+    const handleAutoPass = () => {
+      console.log(`[LUDO TIMEOUT] Turn stuck for ${timeoutDuration / 1000}s. Forcing turn pass.`);
+      
+      // Determine next player
+      let nextPlayer = currentPlayer;
+      do {
+        nextPlayer = (nextPlayer + 1) % 4;
+      } while (
+        !activeSlots.includes(nextPlayer) || 
+        (winners.includes(nextPlayer) && winners.length < activeSlots.length)
+      );
+
+      // Reset local state
+      setCurrentPlayer(nextPlayer);
+      setIsDiceRolled(false);
+      setIsRolling(false);
+
+      // Instant sync
+      syncState({
+        currentPlayer: nextPlayer,
+        isDiceRolled: false,
+        isRolling: false
+      });
+    };
+
+    const timer = setTimeout(handleAutoPass, timeoutDuration);
+
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [currentPlayer, isDiceRolled, isRolling, mode, room, activeSlots, winners, syncState]);
 
   const canTokenMove = useCallback((token: Token, roll: number) => {
     if (token.step === 57) return false; // Already at goal
@@ -215,29 +274,41 @@ const Ludo: React.FC<LudoProps> = ({ onGameOver }) => {
     if (mode === "multi" && room && !isMyTurn) return;
 
     setIsRolling(true);
+    // Sync rolling state instantly so all players see the rolling animation
+    syncState({ isRolling: true });
+
     setTimeout(() => {
       const roll = Math.floor(Math.random() * 6) + 1;
       setLastRoll(roll);
       setIsRolling(false);
       setIsDiceRolled(true);
 
-      // check if any token can move
-      const canMove = tokens.some(t => t.pIdx === currentPlayer && canTokenMove(t, roll));
+      // check if any token can move using the current tokens state
+      const currentTokens = stateRef.current.tokens;
+      const canMove = currentTokens.some(t => t.pIdx === currentPlayer && canTokenMove(t, roll));
       
       if (!canMove) {
-        // No moves possible, skip turn
-        setTimeout(() => {
-          let nextPlayer = currentPlayer;
-          do {
-            nextPlayer = (nextPlayer + 1) % 4;
-          } while (!activeSlots.includes(nextPlayer) || (winners.includes(nextPlayer) && winners.length < activeSlots.length));
-          
-          setCurrentPlayer(nextPlayer);
-          setIsDiceRolled(false);
-          syncState({ currentPlayer: nextPlayer, isDiceRolled: false, lastRoll: roll });
-        }, 1000);
+        // No moves possible, skip turn instantly without nested timeout delays
+        let nextPlayer = currentPlayer;
+        do {
+          nextPlayer = (nextPlayer + 1) % 4;
+        } while (!activeSlots.includes(nextPlayer) || (winners.includes(nextPlayer) && winners.length < activeSlots.length));
+        
+        setCurrentPlayer(nextPlayer);
+        setIsDiceRolled(false);
+        setIsRolling(false);
+        syncState({ 
+          currentPlayer: nextPlayer, 
+          isDiceRolled: false, 
+          lastRoll: roll,
+          isRolling: false
+        });
       } else {
-        syncState({ isDiceRolled: true, lastRoll: roll, lastRollValue: roll });
+        syncState({ 
+          isDiceRolled: true, 
+          lastRoll: roll, 
+          isRolling: false 
+        });
       }
     }, 1000);
   };
@@ -330,6 +401,20 @@ const Ludo: React.FC<LudoProps> = ({ onGameOver }) => {
     const absIdx = (config.startIdx + token.step) % 52;
     return { x: CIRCUIT_PATH[absIdx][1], y: CIRCUIT_PATH[absIdx][0] };
   };
+
+  const tokenRawCoords = useMemo(() => {
+    const coordsMap: Record<string, Token[]> = {};
+    tokens.forEach((t) => {
+      if (!activeSlots.includes(t.pIdx)) return;
+      const { x, y } = getTokenCoords(t);
+      const key = `${x}-${y}`;
+      if (!coordsMap[key]) {
+        coordsMap[key] = [];
+      }
+      coordsMap[key].push(t);
+    });
+    return coordsMap;
+  }, [tokens, activeSlots]);
 
   const renderSquare = (r: number, c: number) => {
     const isSafe = LUDO_SAFE_SQUARES.some(s => s[0] === r && s[1] === c);
@@ -559,6 +644,39 @@ const Ludo: React.FC<LudoProps> = ({ onGameOver }) => {
               const canMove = isTurn && canTokenMove(token, lastRoll);
               const config = PLAYER_CONFIGS[token.pIdx];
 
+              const key = `${x}-${y}`;
+              const sharingTokens = tokenRawCoords[key] || [];
+              const tokenIndex = sharingTokens.findIndex(t => t.id === token.id);
+              const totalSharing = sharingTokens.length;
+
+              // Calculate offset and scale based on index and totalSharing
+              let offsetX = 0; // % offset of the element width
+              let offsetY = 0;
+              let scaleModifier = 1.0;
+
+              if (totalSharing > 1) {
+                // Shrink slightly so multiple tokens fit within the standard square
+                scaleModifier = totalSharing === 2 ? 0.82 : totalSharing === 3 ? 0.76 : 0.70;
+                
+                if (totalSharing === 2) {
+                  // Diagonal pairing
+                  const dir = tokenIndex === 0 ? -1 : 1;
+                  offsetX = dir * 18;
+                  offsetY = dir * -18;
+                } else if (totalSharing === 3) {
+                  // Triangle pairing
+                  const angle = (tokenIndex * 2 * Math.PI) / 3 - Math.PI / 2;
+                  offsetX = Math.cos(angle) * 20;
+                  offsetY = Math.sin(angle) * 20;
+                } else {
+                  // Quad grid
+                  const row = Math.floor(tokenIndex / 2);
+                  const col = tokenIndex % 2;
+                  offsetX = (col === 0 ? -22 : 22);
+                  offsetY = (row === 0 ? -22 : 22);
+                }
+              }
+
               return (
                 <motion.div
                   key={token.id}
@@ -567,8 +685,10 @@ const Ludo: React.FC<LudoProps> = ({ onGameOver }) => {
                   animate={{
                     left: `${(x / 15) * 100}%`,
                     top: `${(y / 15) * 100}%`,
-                    scale: canMove ? [1, 1.15, 1] : 1,
-                    zIndex: canMove ? 50 : 20
+                    scale: canMove ? [1 * scaleModifier, 1.15 * scaleModifier, 1 * scaleModifier] : 1 * scaleModifier,
+                    x: `${offsetX}%`,
+                    y: `${offsetY}%`,
+                    zIndex: canMove ? 50 : 20 + tokenIndex
                   }}
                   transition={{ 
                     type: "spring", 
@@ -578,14 +698,15 @@ const Ludo: React.FC<LudoProps> = ({ onGameOver }) => {
                   }}
                   onClick={() => moveToken(token)}
                   className={cn(
-                    "absolute w-[6.66%] h-[6.66%] p-1.5 transition-all",
+                    "absolute w-[6.66%] h-[6.66%] transition-all",
+                    totalSharing > 1 ? "p-0.5" : "p-1.5",
                     canMove ? "cursor-pointer pointer-events-auto" : "pointer-events-none"
                   )}
                 >
                   <div className={cn(
                     "w-full h-full rounded-full border-[3px] shadow-[0_10px_20px_rgba(0,0,0,0.4)] flex items-center justify-center relative group",
                     config.color,
-                    canMove ? "border-white ring-[6px] ring-white/30" : "border-black/30"
+                    canMove ? "border-white ring-[4px] ring-white/30" : "border-black/30"
                   )}>
                     {/* Inner Token Detail */}
                     <div className="w-[60%] h-[60%] rounded-full border border-white/30 bg-white/10" />
