@@ -304,7 +304,11 @@ async function startServer() {
 
     socket.on("game-action", async ({ roomId, action, data }) => {
       // Basic broadcast for backwards compatibility
-      socket.to(roomId).emit("game-event", { sender: socket.id, action, data });
+      if (action && (action === "ludo-sync" || action.startsWith("ludo-"))) {
+        io.to(roomId).emit("game-event", { sender: socket.id, action, data });
+      } else {
+        socket.to(roomId).emit("game-event", { sender: socket.id, action, data });
+      }
 
       // authoritative turn management for specific actions
       if (action === "snakes-move" || action === "turn-finished" || action === "connect4-move") {

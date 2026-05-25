@@ -193,6 +193,13 @@ const Ludo: React.FC<LudoProps> = ({ onGameOver }) => {
     }
   }, [winners, mode, room, hasReportedResult, onGameOver]);
 
+  const canTokenMove = useCallback((token: Token, roll: number) => {
+    if (token.step === 57) return false; // Already at goal
+    if (token.step === -1) return roll === 6; // Needs a 6 to start
+    if (token.step + roll > 57) return false; // Over-reaching goal
+    return true;
+  }, []);
+
   // Sync Game State
   useEffect(() => {
     if (mode === "multi" && room) {
@@ -202,15 +209,38 @@ const Ludo: React.FC<LudoProps> = ({ onGameOver }) => {
           setCurrentPlayer(data.currentPlayer);
           setLastRoll(data.lastRoll);
           setIsDiceRolled(data.isDiceRolled);
-          if (data.isRolling !== undefined) {
-            setIsRolling(data.isRolling);
-          }
           setWinners(data.winners || []);
+          setIsRolling(false); // Stop any infinite animations
+        } else if (action === "ludo-roll") {
+          setIsRolling(true);
+          setTimeout(() => {
+            setLastRoll(data.roll);
+            setIsRolling(false);
+
+            // Calculate canMove locally on all clients with synchronized roll
+            const currentTokens = stateRef.current.tokens;
+            const canMove = currentTokens.some(t => t.pIdx === data.currentPlayer && canTokenMove(t, data.roll));
+
+            if (!canMove) {
+              let nextPlayer = data.currentPlayer;
+              do {
+                nextPlayer = (nextPlayer + 1) % 4;
+              } while (
+                !activeSlots.includes(nextPlayer) || 
+                (stateRef.current.winners.includes(nextPlayer) && stateRef.current.winners.length < activeSlots.length)
+              );
+
+              setCurrentPlayer(nextPlayer);
+              setIsDiceRolled(false);
+            } else {
+              setIsDiceRolled(true);
+            }
+          }, 800);
         }
       });
       return () => { socket.off("game-event"); };
     }
-  }, [mode, room]);
+  }, [mode, room, activeSlots, canTokenMove]);
 
   // 12-second turn auto-pass fallback to prevent deadlocks completely
   useEffect(() => {
@@ -242,17 +272,25 @@ const Ludo: React.FC<LudoProps> = ({ onGameOver }) => {
         (winners.includes(nextPlayer) && winners.length < activeSlots.length)
       );
 
-      // Reset local state
-      setCurrentPlayer(nextPlayer);
-      setIsDiceRolled(false);
-      setIsRolling(false);
-
-      // Instant sync
-      syncState({
-        currentPlayer: nextPlayer,
-        isDiceRolled: false,
-        isRolling: false
-      });
+      if (mode === "multi" && room) {
+        socket.emit("game-action", {
+          roomId: room.id,
+          action: "ludo-sync",
+          data: {
+            tokens: stateRef.current.tokens,
+            currentPlayer: nextPlayer,
+            lastRoll: stateRef.current.lastRoll,
+            isDiceRolled: false,
+            winners: stateRef.current.winners,
+            isRolling: false
+          }
+        });
+      } else {
+        // Reset local state
+        setCurrentPlayer(nextPlayer);
+        setIsDiceRolled(false);
+        setIsRolling(false);
+      }
     };
 
     const timer = setTimeout(handleAutoPass, timeoutDuration);
@@ -260,57 +298,46 @@ const Ludo: React.FC<LudoProps> = ({ onGameOver }) => {
     return () => {
       clearTimeout(timer);
     };
-  }, [currentPlayer, isDiceRolled, isRolling, mode, room, activeSlots, winners, syncState]);
-
-  const canTokenMove = useCallback((token: Token, roll: number) => {
-    if (token.step === 57) return false; // Already at goal
-    if (token.step === -1) return roll === 6; // Needs a 6 to start
-    if (token.step + roll > 57) return false; // Over-reaching goal
-    return true;
-  }, []);
+  }, [currentPlayer, isDiceRolled, isRolling, mode, room, activeSlots, winners]);
 
   const rollDice = () => {
     if (isRolling || isDiceRolled) return;
     if (mode === "multi" && room && !isMyTurn) return;
 
-    setIsRolling(true);
-    // Sync rolling state instantly so all players see the rolling animation
-    syncState({ isRolling: true });
+    if (mode === "multi" && room) {
+      // 1. Generate the random roll immediately on the sender's device
+      const rolledNumber = Math.floor(Math.random() * 6) + 1;
 
-    setTimeout(() => {
-      const roll = Math.floor(Math.random() * 6) + 1;
-      setLastRoll(roll);
-      setIsRolling(false);
-      setIsDiceRolled(true);
-
-      // check if any token can move using the current tokens state
-      const currentTokens = stateRef.current.tokens;
-      const canMove = currentTokens.some(t => t.pIdx === currentPlayer && canTokenMove(t, roll));
-      
-      if (!canMove) {
-        // No moves possible, skip turn instantly without nested timeout delays
-        let nextPlayer = currentPlayer;
-        do {
-          nextPlayer = (nextPlayer + 1) % 4;
-        } while (!activeSlots.includes(nextPlayer) || (winners.includes(nextPlayer) && winners.length < activeSlots.length));
-        
-        setCurrentPlayer(nextPlayer);
-        setIsDiceRolled(false);
+      // 2. Immediately transmit through socket. Both devices will trigger the 800ms rolling animation together.
+      socket.emit("game-action", {
+        roomId: room.id,
+        action: "ludo-roll",
+        data: {
+          roll: rolledNumber,
+          currentPlayer
+        }
+      });
+    } else {
+      // Offline/Solo mode logic
+      setIsRolling(true);
+      setTimeout(() => {
+        const roll = Math.floor(Math.random() * 6) + 1;
+        setLastRoll(roll);
         setIsRolling(false);
-        syncState({ 
-          currentPlayer: nextPlayer, 
-          isDiceRolled: false, 
-          lastRoll: roll,
-          isRolling: false
-        });
-      } else {
-        syncState({ 
-          isDiceRolled: true, 
-          lastRoll: roll, 
-          isRolling: false 
-        });
-      }
-    }, 1000);
+        setIsDiceRolled(true);
+
+        const canMove = tokens.some(t => t.pIdx === currentPlayer && canTokenMove(t, roll));
+        if (!canMove) {
+          let nextPlayer = currentPlayer;
+          do {
+            nextPlayer = (nextPlayer + 1) % 4;
+          } while (!activeSlots.includes(nextPlayer) || (winners.includes(nextPlayer) && winners.length < activeSlots.length));
+          
+          setCurrentPlayer(nextPlayer);
+          setIsDiceRolled(false);
+        }
+      }, 800);
+    }
   };
 
   const moveToken = (token: Token) => {
@@ -372,17 +399,25 @@ const Ludo: React.FC<LudoProps> = ({ onGameOver }) => {
       } while (!activeSlots.includes(nextP) || (newWinners.includes(nextP) && newWinners.length < activeSlots.length));
     }
 
-    setTokens(newTokens);
-    setWinners(newWinners);
-    setCurrentPlayer(nextP);
-    setIsDiceRolled(false);
-
-    syncState({
-      tokens: newTokens,
-      currentPlayer: nextP,
-      isDiceRolled: false,
-      winners: newWinners
-    });
+    if (mode === "multi" && room) {
+      socket.emit("game-action", {
+        roomId: room.id,
+        action: "ludo-sync",
+        data: {
+          tokens: newTokens,
+          currentPlayer: nextP,
+          lastRoll: lastRoll,
+          isDiceRolled: false,
+          winners: newWinners,
+          isRolling: false
+        }
+      });
+    } else {
+      setTokens(newTokens);
+      setWinners(newWinners);
+      setCurrentPlayer(nextP);
+      setIsDiceRolled(false);
+    }
   };
 
   const getTokenCoords = (token: Token) => {
